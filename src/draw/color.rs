@@ -24,7 +24,7 @@ pub enum Color {
 impl Color {
     #[must_use]
     pub const fn ansi_sequence_fg(self, buf: &mut [u8; COLOR_SEQUENCE_SISE]) -> usize {
-        let mut writer = io::SliceWriter::new(buf);
+        let mut writer = io::ArrayWriter::new(buf);
         unsafe {
             match self {
                 Color::Normal(literal) => {
@@ -58,7 +58,7 @@ impl Color {
     }
     #[must_use]
     pub const fn ansi_sequence_bg(self, buf: &mut [u8; COLOR_SEQUENCE_SISE]) -> usize {
-        let mut writer = io::SliceWriter::new(buf);
+        let mut writer = io::ArrayWriter::new(buf);
         unsafe {
             match self {
                 Color::Normal(literal) => {

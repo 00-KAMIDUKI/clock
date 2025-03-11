@@ -32,22 +32,26 @@ pub trait Write: Sized {
     }
 }
 
+pub const STDIN: i32 = 0;
+pub const STDOUT: i32 = 1;
+pub const STDERR: i32 = 2;
+
 pub struct FdWriter(i32);
 #[derive(Clone, Copy)]
 pub struct FdReader(i32);
 
 impl FdWriter {
     pub const fn stdout() -> Self {
-        Self(1)
+        Self(STDOUT)
     }
     pub const fn stderr() -> Self {
-        Self(2)
+        Self(STDERR)
     }
 }
 
 impl FdReader {
     pub const fn stdin() -> Self {
-        Self(0)
+        Self(STDIN)
     }
 
     pub fn read(self, buf: &mut [u8]) -> Result<usize> {
@@ -100,7 +104,6 @@ impl<Buffer: AsMut<[u8]>, Write: self::Write> BufWriter<Buffer, Write> {
         Ok(n)
     }
 
-    #[inline(never)]
     fn fill(&mut self, bytes: &[u8]) {
         unsafe {
             crate::utils::copy_nonoverlapping(
@@ -144,12 +147,12 @@ impl<Buffer: AsMut<[u8]>, Write: self::Write> self::Write for BufWriter<Buffer, 
     }
 }
 
-pub struct SliceWriter<'a, const N: usize> {
+pub struct ArrayWriter<'a, const N: usize> {
     buf: &'a mut [u8; N],
     pub len: usize,
 }
 
-impl<const N: usize> const Write for SliceWriter<'_, N> {
+impl<const N: usize> const Write for ArrayWriter<'_, N> {
     fn write(&mut self, bytes: &[u8]) -> Result<usize> {
         unsafe { self.write_bytes_unchecked(bytes) };
         Ok(bytes.len())
@@ -165,7 +168,7 @@ impl<const N: usize> const Write for SliceWriter<'_, N> {
     }
 }
 
-impl<'a, const N: usize> SliceWriter<'a, N> {
+impl<'a, const N: usize> ArrayWriter<'a, N> {
     pub const fn new(buf: &'a mut [u8; N]) -> Self {
         Self { buf, len: 0 }
     }
