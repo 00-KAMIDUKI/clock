@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "cc"
-version = "1.2.16"
+version = "1.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be714c154be609ec7f5dad223a33bf1482fff90472de28f7362806e6d4832b8c"
+checksum = "525046617d8376e3db1deffb079e91cef90a89fc3ca5c185bbf8c9ecdd15cd5c"
 dependencies = [
  "shlex",
 ]
@@ -20,9 +20,9 @@ dependencies = [
 
 [[package]]
 name = "nc"
-version = "0.9.5"
+version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34566634a278b9af0f62b872339d884ea689982514825ba306705f264038144e"
+checksum = "56c6d92d33b290df8a962fbf778711d529b11c92dc060cd675f1ce45a9a50977"
 dependencies = [
  "cc",
 ]

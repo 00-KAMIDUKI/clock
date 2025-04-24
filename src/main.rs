@@ -4,7 +4,8 @@
 #![feature(concat_bytes, const_trait_impl, naked_functions)]
 
 use core::{
-    alloc::GlobalAlloc, arch::naked_asm, mem::MaybeUninit, panic::PanicInfo, ptr::null_mut,
+    alloc::GlobalAlloc, arch::naked_asm, cell::Cell, mem::MaybeUninit, panic::PanicInfo,
+    ptr::null_mut,
 };
 
 use draw::draw_time;
@@ -138,42 +139,52 @@ fn on_exit() -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(target_arch = "x86_64")]
 #[naked]
 extern "C" fn restorer() {
     unsafe { naked_asm!("mov rax, 0xf", "syscall",) }
 }
 
-type MarginBuf = [u8; 32];
+struct MarginBuf {
+    buf: [u8; 32],
+    len: u8,
+}
 
-fn resize() {
+impl MarginBuf {
+    fn slice(&self) -> &[u8] {
+        unsafe { self.buf.get_unchecked(..self.len as _) }
+    }
+
+    fn cursor_move(&mut self, n: usize, direction: Direction) -> io::Result<()> {
+        let mut writer = ArrayWriter::new(&mut self.buf);
+        cursor_move(&mut writer, n as _, direction)?;
+        self.len = writer.len as _;
+        Ok(())
+    }
+}
+
+fn resize() -> io::Result<()> {
     let winsz = MaybeUninit::<nc::winsize_t>::uninit();
     #[allow(static_mut_refs)]
     unsafe {
         nc::ioctl(io::STDIN, nc::TIOCGWINSZ, winsz.as_ptr() as _)
             .unwrap_or_else(|e| utils::exit(e as _));
-        let nc::winsize_t { ws_row, ws_col, .. } = winsz.assume_init();
-        let mut margin_left = MaybeUninit::<MarginBuf>::uninit();
-        let mut writer = ArrayWriter::new(margin_left.assume_init_mut());
-        _ = cursor_move(&mut writer, ((ws_col - 38) / 2) as _, Direction::Right);
-        let len = writer.len;
-        MARGIN_LEFT.write((margin_left.assume_init(), len as _));
+        let nc::winsize_t { ws_row, ws_col, .. } = winsz.assume_init_ref();
 
-        let mut margin_top = MaybeUninit::<MarginBuf>::uninit();
-        let mut writer = ArrayWriter::new(margin_top.assume_init_mut());
-        _ = cursor_move(&mut writer, ((ws_row - 5) / 2) as _, Direction::Down);
-        let len = writer.len;
-        MARGIN_TOP.write((margin_top.assume_init(), len as _));
+        MARGIN_LEFT
+            .assume_init_mut()
+            .cursor_move(((ws_col - 38) / 2) as _, Direction::Right)?;
+        MARGIN_TOP
+            .assume_init_mut()
+            .cursor_move(((ws_row - 5) / 2) as _, Direction::Down)?;
     };
+    Ok(())
 }
 
 fn set_signal_handler() {
     extern "C" fn terminate(_: i32) {
         _ = on_exit();
         utils::exit(0);
-    }
-
-    fn resize(_: i32) {
-        crate::resize();
     }
 
     unsafe {
@@ -197,19 +208,17 @@ fn set_signal_handler() {
 }
 
 static mut TERMIOS: MaybeUninit<nc::termios_t> = MaybeUninit::uninit();
-static mut MARGIN_LEFT: MaybeUninit<(MarginBuf, u8)> = MaybeUninit::uninit();
-static mut MARGIN_TOP: MaybeUninit<(MarginBuf, u8)> = MaybeUninit::uninit();
+static mut MARGIN_LEFT: MaybeUninit<MarginBuf> = MaybeUninit::uninit();
+static mut MARGIN_TOP: MaybeUninit<MarginBuf> = MaybeUninit::uninit();
 
 fn margin_left() -> &'static [u8] {
     #[allow(static_mut_refs)]
-    let (buf, len) = unsafe { MARGIN_LEFT.assume_init_ref() };
-    unsafe { buf.get_unchecked(..*len as _) }
+    unsafe { MARGIN_LEFT.assume_init_ref() }.slice()
 }
 
 fn margin_top() -> &'static [u8] {
     #[allow(static_mut_refs)]
-    let (buf, len) = unsafe { MARGIN_TOP.assume_init_ref() };
-    unsafe { buf.get_unchecked(..*len as _) }
+    unsafe { MARGIN_TOP.assume_init_ref() }.slice()
 }
 
 #[repr(u8)]
@@ -233,20 +242,26 @@ fn main() -> io::Result<()> {
     let buf = unsafe { buf.assume_init_mut() };
     let mut ctx = draw::Context::new(BufWriter::new(FdWriter::stdout(), buf));
 
+    let get_time = || -> io::Result<isize> {
+        let mut time = MaybeUninit::uninit();
+        unsafe {
+            nc::time(time.assume_init_mut())?;
+            Ok(time.assume_init())
+        }
+    };
+
+    let seconds = Cell::new(get_time()?);
+
     let mut redraw = || -> io::Result<()> {
         ctx.writer.write_all(concat_bytes!(
             restore_buffer!(),
             set_buffer!(),
             cursor_position!(),
-            fg_color!(br_blue)
+            fg_color!(br_blue),
         ))?;
-        ctx.writer.write(margin_top())?;
-        let mut time = MaybeUninit::uninit();
-        unsafe {
-            nc::time(time.assume_init_mut())?;
-            let content = draw_time(time.assume_init() + 8 * 3600);
-            ctx.draw(Some(margin_left()), || content)?
-        };
+        ctx.writer.write_all(margin_top())?;
+        let content = draw_time(seconds.get() + 8 * 3600);
+        ctx.draw(Some(margin_left()), || content)?;
         ctx.writer.flush()?;
         Ok(())
     };
@@ -258,7 +273,8 @@ fn main() -> io::Result<()> {
         termios.c_lflag &= !(nc::ECHO | nc::ICANON);
         nc::ioctl(io::STDIN, nc::TCSETS, &raw const termios as _)?;
     }
-    resize();
+
+    resize()?;
     redraw()?;
     set_signal_handler();
     FdWriter::stdout().write_all(hide_cursor!())?;
@@ -301,6 +317,7 @@ fn main() -> io::Result<()> {
         let cqe = ring.complete();
         match cqe.user_data {
             x if x == Token::Timeout as _ => {
+                seconds.set(get_time()?);
                 redraw()?;
             }
             x if x == Token::Read as _ => {
@@ -341,8 +358,11 @@ pub mod utils {
         unsafe { asm!("", options(noreturn)) }
     }
 
-    #[inline(never)]
-    pub const fn copy_nonoverlapping(mut src: *const u8, mut dst: *mut u8, mut count: usize) {
+    pub const unsafe fn copy_nonoverlapping(
+        mut src: *const u8,
+        mut dst: *mut u8,
+        mut count: usize,
+    ) {
         while count > 0 {
             unsafe {
                 *dst = *src;

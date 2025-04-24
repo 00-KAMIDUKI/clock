@@ -9,20 +9,18 @@ pub struct Context<Writer: Write> {
 }
 
 #[derive(Clone, Copy)]
-pub struct Draw {
-    spaces: i8,
-}
+pub struct Draw(i8);
 
 impl Draw {
-    const fn new(spaces: i8) -> Self {
-        Self { spaces }
+    const fn new(data: i8) -> Self {
+        Self(data)
     }
-    const fn on(spaces: u8) -> Self {
-        Self::new(spaces as _)
+    const fn on(data: u8) -> Self {
+        Self::new(data as _)
     }
 
-    const fn off(spaces: u8) -> Self {
-        Self::new(-(spaces as i8))
+    const fn off(data: u8) -> Self {
+        Self::new(-(data as i8))
     }
 
     const NOP: Self = Self::new(0);
@@ -34,26 +32,33 @@ impl Draw {
     const ONE: [Self; 3] = [Self::off(1), Self::on(2), Self::NOP];
 }
 
+fn space(n: usize) -> &'static [u8] {
+    const SPACES: [u8; 3] = [b' '; 3];
+    unsafe { &SPACES.get_unchecked(..n) }
+}
+
+fn block(n: usize) -> &'static [u8] {
+    const BLOCKS: &[u8] = "█████".as_bytes();
+    unsafe { &BLOCKS.get_unchecked(..n * 3) }
+}
+
 impl<Writer: Write> Context<Writer> {
     pub const fn new(writer: Writer) -> Self {
         Self { writer }
     }
 
     fn space(&mut self, n: usize) -> io::Result<()> {
-        const SPACES: [u8; 3] = [b' '; 3];
-        self.writer.write_all(unsafe { &SPACES.get_unchecked(..n) })
+        self.writer.write_all(space(n))
     }
 
     fn block(&mut self, n: usize) -> io::Result<()> {
-        const BLOCKS: &[u8] = "█████".as_bytes();
-        self.writer
-            .write_all(unsafe { &BLOCKS.get_unchecked(..n * 3) })
+        self.writer.write_all(block(n))
     }
 
-    fn do_draw(&mut self, Draw { spaces }: Draw) -> io::Result<()> {
-        match spaces.signum() {
-            1 => self.block(spaces as _),
-            -1 => self.space(-spaces as _),
+    fn do_draw(&mut self, Draw(data): Draw) -> io::Result<()> {
+        match data.signum() {
+            1 => self.block(data as _),
+            -1 => self.space(-data as _),
             _ => Ok(()),
         }
     }
@@ -67,14 +72,15 @@ impl<Writer: Write> Context<Writer> {
             if let Some(x) = margin_left {
                 self.writer.write_all(x)?;
             }
-            for &draw_line_n in string() {
+            let string = string();
+            for &draw_line_n in string {
                 let draw_list = draw_line_n[line];
                 for draw in draw_list {
                     self.do_draw(draw)?;
                 }
                 self.do_draw(Draw::off(1))?;
             }
-            self.writer.write(b"\n")?;
+            self.writer.write_all(b"\n")?;
         }
         Ok(())
     }

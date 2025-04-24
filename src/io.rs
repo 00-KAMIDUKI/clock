@@ -177,11 +177,13 @@ impl<'a, const N: usize> ArrayWriter<'a, N> {
         self.len += 1;
     }
     pub const unsafe fn write_bytes_unchecked(&mut self, bytes: &[u8]) {
-        crate::utils::copy_nonoverlapping(
-            bytes.as_ptr(),
-            unsafe { self.buf.as_mut_ptr().add(self.len) },
-            bytes.len(),
-        );
+        unsafe {
+            crate::utils::copy_nonoverlapping(
+                bytes.as_ptr(),
+                self.buf.as_mut_ptr().add(self.len),
+                bytes.len(),
+            );
+        }
         self.len += bytes.len();
     }
     pub const unsafe fn write_u64_unchecked(&mut self, n: u64) {
@@ -193,7 +195,7 @@ impl<'a, const N: usize> ArrayWriter<'a, N> {
 fn test_copy() {
     let src = b"hello";
     let mut dst = [0; 18];
-    crate::utils::copy_nonoverlapping(src.as_ptr(), dst.as_mut_ptr(), src.len());
+    unsafe { crate::utils::copy_nonoverlapping(src.as_ptr(), dst.as_mut_ptr(), src.len()) };
     assert_eq!(dst[..src.len()], src[..])
 }
 
