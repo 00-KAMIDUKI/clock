@@ -2,7 +2,7 @@
 ![Screenshot](https://github.com/user-attachments/assets/882b54be-0387-429b-a1bc-999a6cc90854)
 
 A featherweight digital clock for terminal (TUI),
-written in Rust with zero dependencies (no stdlib, no libc).
+written in Rust with zero runtime dependencies (no stdlib, no libc).
 Designed for Linux systems.
 
 ## Key Features
